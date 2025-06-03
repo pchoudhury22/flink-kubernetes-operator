@@ -189,7 +189,8 @@ public class MetricsCollectionAndEvaluationTest {
                 new ScalingTracking(),
                 clock.instant(),
                 topology,
-                new DelayedScaleDown());
+                new DelayedScaleDown(),
+                new BaselineTracking());
 
         var scaledParallelism = ScalingExecutorTest.getScaledParallelism(stateStore, context);
         assertEquals(4, scaledParallelism.size());
@@ -424,7 +425,8 @@ public class MetricsCollectionAndEvaluationTest {
                 new ScalingTracking(),
                 clock.instant(),
                 topology,
-                new DelayedScaleDown());
+                new DelayedScaleDown(),
+                new BaselineTracking());
         var scaledParallelism = ScalingExecutorTest.getScaledParallelism(stateStore, context);
         assertEquals(1, scaledParallelism.get(source1));
     }
@@ -684,7 +686,8 @@ public class MetricsCollectionAndEvaluationTest {
                 new ScalingTracking(),
                 clock.instant(),
                 topology,
-                new DelayedScaleDown());
+                new DelayedScaleDown(),
+                new BaselineTracking());
         var scaledParallelism = ScalingExecutorTest.getScaledParallelism(stateStore, context);
         assertEquals(1, scaledParallelism.get(source1));
 

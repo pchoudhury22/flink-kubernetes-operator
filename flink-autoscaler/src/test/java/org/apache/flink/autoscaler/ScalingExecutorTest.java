@@ -150,7 +150,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .hasSize(1);
 
         // Both of 0.7 and 0.6 are within the utilization bound [0.6 - 0.2, 0.6 + 0.2], so scaling
@@ -169,7 +171,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .isEmpty();
 
         // 0.85 is outside of the utilization bound [0.6 - 0.2, 0.6 + 0.2], so scaling happens
@@ -184,7 +188,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .hasSize(2);
 
         // Both of 0.7 are within the utilization bound [0.6 - 0.2, 0.6 + 0.2], so scaling could be
@@ -200,7 +206,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .isEmpty();
 
         // Test with backlog based scaling
@@ -215,7 +223,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .hasSize(2);
     }
 
@@ -260,7 +270,8 @@ public class ScalingExecutorTest {
                         scalingTracking,
                         now,
                         jobTopology,
-                        new DelayedScaleDown()));
+                        new DelayedScaleDown(),
+                        new BaselineTracking()));
     }
 
     @Test
@@ -292,7 +303,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .containsOnlyKeys(source, sink);
 
         // target 0.6, max 0.7, min 0.5
@@ -307,7 +320,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .containsOnlyKeys(source, sink);
 
         // When the target boundary parameter is used,
@@ -329,7 +344,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .containsOnlyKeys(sink);
 
         // When the target boundary parameter and max parameter are set,
@@ -351,7 +368,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .isEmpty();
 
         metrics =
@@ -365,7 +384,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .containsOnlyKeys(sink);
 
         // When the target boundary parameter and min parameter are set,
@@ -388,7 +409,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .isEmpty();
 
         metrics =
@@ -402,7 +425,9 @@ public class ScalingExecutorTest {
                                 Map.of(),
                                 Duration.ZERO,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking(),
+                                Instant.now()))
                 .containsOnlyKeys(source, sink);
     }
 
@@ -446,7 +471,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         // filter operator should scale
         conf.set(AutoScalerOptions.VERTEX_EXCLUDE_IDS, List.of());
         assertTrue(
@@ -457,7 +483,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
     }
 
     @Test
@@ -496,7 +523,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         // scaling execution outside excluded periods
         excludedPeriod =
                 new StringBuilder(localTime.plusSeconds(100).toString().split("\\.")[0])
@@ -512,7 +540,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
     }
 
     @Test
@@ -549,7 +578,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
 
         scalingExecutor =
                 new ScalingExecutor<>(
@@ -575,7 +605,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
     }
 
     @ParameterizedTest
@@ -623,7 +654,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        new DelayedScaleDown()));
+                        new DelayedScaleDown(),
+                        new BaselineTracking()));
         Map<String, String> expected;
         if (memoryTuningEnabled) {
             assertNotEquals(context.getConfiguration(), capturedConfForMaxResources);
@@ -696,7 +728,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         assertEquals(
                 scalingEnabled,
                 scalingExecutor.scaleResource(
@@ -706,7 +739,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         int expectedSize = (interval == null || interval.toMillis() > 0) && !scalingEnabled ? 1 : 2;
         assertEquals(expectedSize, eventCollector.events.size());
 
@@ -746,7 +780,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         now,
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         var event2 = eventCollector.events.poll();
         assertThat(event2).isNotNull();
         assertThat(event2.getContext()).isSameAs(event.getContext());
@@ -783,7 +818,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         Instant.now(),
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
 
         // Just below the thresholds
         metrics =
@@ -802,7 +838,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         Instant.now(),
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
 
         eventCollector.events.clear();
 
@@ -823,7 +860,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         Instant.now(),
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         assertEquals("MemoryPressure", eventCollector.events.poll().getReason());
         assertTrue(eventCollector.events.isEmpty());
 
@@ -844,7 +882,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         Instant.now(),
                         jobTopology,
-                        delayedScaleDown));
+                        delayedScaleDown,
+                        new BaselineTracking()));
         assertEquals("MemoryPressure", eventCollector.events.poll().getReason());
         assertTrue(eventCollector.events.isEmpty());
     }
@@ -899,7 +938,8 @@ public class ScalingExecutorTest {
                                 new ScalingTracking(),
                                 now,
                                 jobTopology,
-                                new DelayedScaleDown()))
+                                new DelayedScaleDown(),
+                                new BaselineTracking()))
                 .isTrue();
 
         Map<String, String> parallelismOverrides = stateStore.getParallelismOverrides(context);
@@ -1025,7 +1065,8 @@ public class ScalingExecutorTest {
                         new ScalingTracking(),
                         Instant.now(),
                         jobTopology,
-                        new DelayedScaleDown()));
+                        new DelayedScaleDown(),
+                        new BaselineTracking()));
         if (quotaReached) {
             assertEquals("ScalingReport", eventCollector.events.poll().getReason());
             assertEquals("ResourceQuotaReached", eventCollector.events.poll().getReason());

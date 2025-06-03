@@ -18,6 +18,7 @@
 package org.apache.flink.autoscaler.config;
 
 import org.apache.flink.autoscaler.JobVertexScaler;
+import org.apache.flink.autoscaler.metrics.BaselineAggregator;
 import org.apache.flink.autoscaler.metrics.MetricAggregator;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
@@ -31,6 +32,7 @@ public class AutoScalerOptions {
 
     public static final String OLD_K8S_OP_CONF_PREFIX = "kubernetes.operator.";
     public static final String AUTOSCALER_CONF_PREFIX = "job.autoscaler.";
+    public static final String SCHEDULED_SCALING_CONF_PREFIX = "scheduled-scaling.schedule.";
 
     private static String oldOperatorConfigKey(String key) {
         return OLD_K8S_OP_CONF_PREFIX + AUTOSCALER_CONF_PREFIX + key;
@@ -418,4 +420,60 @@ public class AutoScalerOptions {
                             "Minimum allowed value for the observed scalability coefficient. "
                                     + "Prevents aggressive scaling by clamping low coefficient estimates. "
                                     + "If the estimated coefficient falls below this value, it is capped at the configured minimum.");
+
+    public static final ConfigOption<List<String>> BASELINE_WINDOW =
+            autoScalerConfig("scheduled-scaling.baseline-window")
+                    .stringType()
+                    .asList()
+                    .defaultValues()
+                    .withFallbackKeys(oldOperatorConfigKey("scheduled-scaling.baseline-window"))
+                    .withDescription(
+                            "A (semicolon-separated) list of time windows during which baseline processing rates are computed for each vertex, the expression consist of two optional subexpressions concatenated with &&, "
+                                    + "one is cron expression in Quartz format (6 or 7 positions), "
+                                    + "for example, * * 9-11,14-16 * * ? means exclude from 9:00:00am to 11:59:59am and from 2:00:00pm to 4:59:59pm every day, * * * ? * 2-6 means exclude every weekday, etc."
+                                    + "see http://www.quartz-scheduler.org/documentation/quartz-2.3.0/tutorials/crontrigger.html for the usage of cron expression."
+                                    + "Caution: in most case cron expression is enough, we introduce the other subexpression: daily expression, because cron can only represent integer hour period without minutes and "
+                                    + "seconds suffix, daily expression's formation is startTime-endTime, such as 9:30:30-10:50:20, when exclude from 9:30:30-10:50:20 in Monday and Thursday "
+                                    + "we can express it as 9:30:30-10:50:20 && * * * ? * 2,5");
+
+    public static final ConfigOption<BaselineAggregator> BASELINE_AGGREGATOR =
+            autoScalerConfig("scheduled-scaling.baseline-aggregator")
+                    .enumType(BaselineAggregator.class)
+                    .defaultValue(BaselineAggregator.MAX)
+                    .withFallbackKeys(oldOperatorConfigKey("scheduled-scaling.baseline-aggregator"))
+                    .withDescription(
+                            "Specifies the aggregator used to derive the baseline processing rate for scheduled scaling. Options include avg, min or max. This applies across all defined schedules.");
+
+    public static final ConfigOption<Integer> BASELINE_MAX_SAMPLES =
+            autoScalerConfig("scheduled-scaling.baseline-max-samples")
+                    .intType()
+                    .defaultValue(20)
+                    .withFallbackKeys(
+                            oldOperatorConfigKey("scheduled-scaling.baseline-max-samples"))
+                    .withDescription(
+                            "Specifies the maximum number of samples to retain per vertex. "
+                                    + "These samples are collected using fixed intervals sampling and used to compute scheduled scaling decisions. "
+                                    + "This value controls the memory footprint of stored baseline data.");
+
+    public static final ConfigOption<Integer> BASELINE_MIN_SAMPLES =
+            autoScalerConfig("scheduled-scaling.baseline-min-samples")
+                    .intType()
+                    .defaultValue(5)
+                    .withFallbackKeys(
+                            oldOperatorConfigKey("scheduled-scaling.baseline-min-samples"))
+                    .withDescription(
+                            "Specifies the minimum number of samples required for a vertex. "
+                                    + "If fewer than this number are available, scheduled scaling will be skipped for that vertex "
+                                    + "to avoid making decisions based on insufficient data. "
+                                    + "This helps ensure scaling decisions are based on reliable baseline estimates.");
+
+    public static final ConfigOption<List<String>> SCHEDULED_SCALING_SCHEDULES =
+            autoScalerConfig("scheduled-scaling.schedules")
+                    .stringType()
+                    .asList()
+                    .defaultValues()
+                    .withFallbackKeys(oldOperatorConfigKey("scheduled-scaling.schedules"))
+                    .withDescription(
+                            "List of named scheduled scaling configurations. Each name maps to a specific scaling schedule "
+                                    + "with its own period and multiplier. Example: peak-traffic,batch-processing");
 }

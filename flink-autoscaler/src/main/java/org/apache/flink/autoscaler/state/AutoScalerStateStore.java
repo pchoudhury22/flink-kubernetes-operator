@@ -18,6 +18,7 @@
 package org.apache.flink.autoscaler.state;
 
 import org.apache.flink.annotation.Experimental;
+import org.apache.flink.autoscaler.BaselineTracking;
 import org.apache.flink.autoscaler.DelayedScaleDown;
 import org.apache.flink.autoscaler.JobAutoScalerContext;
 import org.apache.flink.autoscaler.ScalingSummary;
@@ -52,7 +53,11 @@ public interface AutoScalerStateStore<KEY, Context extends JobAutoScalerContext<
 
     void storeScalingTracking(Context jobContext, ScalingTracking scalingTrack) throws Exception;
 
+    void storeBaselineTracking(Context jobContext, BaselineTracking baselineTrack) throws Exception;
+
     ScalingTracking getScalingTracking(Context jobContext) throws Exception;
+
+    BaselineTracking getBaselineTracking(Context jobContext) throws Exception;
 
     void removeScalingHistory(Context jobContext) throws Exception;
 

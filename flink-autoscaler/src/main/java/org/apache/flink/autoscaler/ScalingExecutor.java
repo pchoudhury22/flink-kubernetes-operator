@@ -100,7 +100,8 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             ScalingTracking scalingTracking,
             Instant now,
             JobTopology jobTopology,
-            DelayedScaleDown delayedScaleDown)
+            DelayedScaleDown delayedScaleDown,
+            BaselineTracking baselineTracking)
             throws Exception {
         var conf = context.getConfiguration();
         var restartTime = scalingTracking.getMaxRestartTimeOrDefault(conf);
@@ -112,7 +113,9 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                         scalingHistory,
                         restartTime,
                         jobTopology,
-                        delayedScaleDown);
+                        delayedScaleDown,
+                        baselineTracking,
+                        now);
 
         if (scalingSummaries.isEmpty()) {
             LOG.info("All job vertices are currently running at their target parallelism.");
@@ -182,7 +185,9 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             Map<JobVertexID, SortedMap<Instant, ScalingSummary>> scalingHistory,
             Duration restartTime,
             JobTopology jobTopology,
-            DelayedScaleDown delayedScaleDown) {
+            DelayedScaleDown delayedScaleDown,
+            BaselineTracking baselineTracking,
+            Instant now) {
         LOG.debug("Restart time used in scaling summary computation: {}", restartTime);
 
         if (isJobUnderMemoryPressure(context, evaluatedMetrics.getGlobalMetrics())) {
@@ -195,6 +200,7 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
         var excludeVertexIdList =
                 context.getConfiguration().get(AutoScalerOptions.VERTEX_EXCLUDE_IDS);
         AtomicBoolean anyVertexOutsideBound = new AtomicBoolean(false);
+        AtomicBoolean isScheduledScaling = new AtomicBoolean(false);
         evaluatedMetrics
                 .getVertexMetrics()
                 .forEach(
@@ -216,12 +222,17 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                                                 scalingHistory.getOrDefault(
                                                         v, Collections.emptySortedMap()),
                                                 restartTime,
-                                                delayedScaleDown);
+                                                delayedScaleDown,
+                                                baselineTracking,
+                                                now);
                                 if (parallelismChange.isNoChange()) {
                                     return;
                                 }
                                 if (parallelismChange.isOutsideUtilizationBound()) {
                                     anyVertexOutsideBound.set(true);
+                                }
+                                if (parallelismChange.isScheduledScaling()) {
+                                    isScheduledScaling.set(true);
                                 }
                                 out.put(
                                         v,
@@ -231,6 +242,11 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                                                 metrics));
                             }
                         });
+
+        if (isScheduledScaling.get()) {
+            LOG.info("Scheduled scaling is enabled.");
+            return out;
+        }
 
         // If the Utilization of all tasks is within range, we can skip scaling.
         if (!anyVertexOutsideBound.get()) {

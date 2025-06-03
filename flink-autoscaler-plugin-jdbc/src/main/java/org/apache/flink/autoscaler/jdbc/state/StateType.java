@@ -28,7 +28,8 @@ public enum StateType {
     COLLECTED_METRICS("collectedMetrics"),
     PARALLELISM_OVERRIDES("parallelismOverrides"),
     CONFIG_OVERRIDES("configOverrides"),
-    DELAYED_SCALE_DOWN("delayedScaleDown");
+    DELAYED_SCALE_DOWN("delayedScaleDown"),
+    BASELINE_TRACKING("baselineTracking");
 
     /**
      * The identifier of each state type, it will be used to store. Please ensure the identifier is

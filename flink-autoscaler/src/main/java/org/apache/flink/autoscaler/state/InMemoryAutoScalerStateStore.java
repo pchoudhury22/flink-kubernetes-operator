@@ -18,6 +18,7 @@
 package org.apache.flink.autoscaler.state;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.autoscaler.BaselineTracking;
 import org.apache.flink.autoscaler.DelayedScaleDown;
 import org.apache.flink.autoscaler.JobAutoScalerContext;
 import org.apache.flink.autoscaler.ScalingSummary;
@@ -59,6 +60,8 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
 
     private final Map<KEY, DelayedScaleDown> delayedScaleDownStore;
 
+    private final Map<KEY, BaselineTracking> baselineTrackingStore;
+
     public InMemoryAutoScalerStateStore() {
         scalingHistoryStore = new ConcurrentHashMap<>();
         collectedMetricsStore = new ConcurrentHashMap<>();
@@ -66,6 +69,7 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
         scalingTrackingStore = new ConcurrentHashMap<>();
         tmConfigOverrides = new ConcurrentHashMap<>();
         delayedScaleDownStore = new ConcurrentHashMap<>();
+        baselineTrackingStore = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -89,9 +93,21 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
     }
 
     @Override
+    public void storeBaselineTracking(Context jobContext, BaselineTracking baselineTrack)
+            throws Exception {
+        baselineTrackingStore.put(jobContext.getJobKey(), baselineTrack);
+    }
+
+    @Override
     public ScalingTracking getScalingTracking(Context jobContext) {
         return Optional.ofNullable(scalingTrackingStore.get(jobContext.getJobKey()))
                 .orElse(new ScalingTracking());
+    }
+
+    @Override
+    public BaselineTracking getBaselineTracking(Context jobContext) throws Exception {
+        return Optional.ofNullable(baselineTrackingStore.get(jobContext.getJobKey()))
+                .orElse(new BaselineTracking());
     }
 
     @Override
@@ -188,7 +204,8 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
                         collectedMetricsStore,
                         tmConfigOverrides,
                         scalingTrackingStore,
-                        delayedScaleDownStore)
+                        delayedScaleDownStore,
+                        baselineTrackingStore)
                 .anyMatch(m -> m.containsKey(k));
     }
 

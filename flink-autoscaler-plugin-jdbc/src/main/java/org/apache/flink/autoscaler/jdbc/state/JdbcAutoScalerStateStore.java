@@ -19,6 +19,7 @@ package org.apache.flink.autoscaler.jdbc.state;
 
 import org.apache.flink.annotation.Experimental;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.autoscaler.BaselineTracking;
 import org.apache.flink.autoscaler.DelayedScaleDown;
 import org.apache.flink.autoscaler.JobAutoScalerContext;
 import org.apache.flink.autoscaler.ScalingSummary;
@@ -48,6 +49,7 @@ import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import static org.apache.flink.autoscaler.jdbc.state.StateType.BASELINE_TRACKING;
 import static org.apache.flink.autoscaler.jdbc.state.StateType.COLLECTED_METRICS;
 import static org.apache.flink.autoscaler.jdbc.state.StateType.CONFIG_OVERRIDES;
 import static org.apache.flink.autoscaler.jdbc.state.StateType.DELAYED_SCALE_DOWN;
@@ -123,6 +125,15 @@ public class JdbcAutoScalerStateStore<KEY, Context extends JobAutoScalerContext<
     }
 
     @Override
+    public void storeBaselineTracking(Context jobContext, BaselineTracking baselineTrack)
+            throws Exception {
+        jdbcStateStore.putSerializedState(
+                getSerializeKey(jobContext),
+                BASELINE_TRACKING,
+                serializeBaselineTracking(baselineTrack));
+    }
+
+    @Override
     public ScalingTracking getScalingTracking(Context jobContext) {
         Optional<String> serializedRescalingHistory =
                 jdbcStateStore.getSerializedState(getSerializeKey(jobContext), SCALING_TRACKING);
@@ -137,6 +148,24 @@ public class JdbcAutoScalerStateStore<KEY, Context extends JobAutoScalerContext<
                     e);
             jdbcStateStore.removeSerializedState(getSerializeKey(jobContext), SCALING_TRACKING);
             return new ScalingTracking();
+        }
+    }
+
+    @Override
+    public BaselineTracking getBaselineTracking(Context jobContext) throws Exception {
+        Optional<String> serializedBaselineRecords =
+                jdbcStateStore.getSerializedState(getSerializeKey(jobContext), BASELINE_TRACKING);
+        if (serializedBaselineRecords.isEmpty()) {
+            return new BaselineTracking();
+        }
+        try {
+            return deserializeBaselineTracking(serializedBaselineRecords.get());
+        } catch (JacksonException e) {
+            LOG.error(
+                    "Could not deserialize baseline tracking records, possibly the format changed. Discarding...",
+                    e);
+            jdbcStateStore.removeSerializedState(getSerializeKey(jobContext), BASELINE_TRACKING);
+            return new BaselineTracking();
         }
     }
 
@@ -283,6 +312,16 @@ public class JdbcAutoScalerStateStore<KEY, Context extends JobAutoScalerContext<
     private static ScalingTracking deserializeScalingTracking(String scalingTracking)
             throws JacksonException {
         return YAML_MAPPER.readValue(scalingTracking, new TypeReference<>() {});
+    }
+
+    protected static String serializeBaselineTracking(BaselineTracking baselineTracking)
+            throws Exception {
+        return YAML_MAPPER.writeValueAsString(baselineTracking);
+    }
+
+    private static BaselineTracking deserializeBaselineTracking(String baselineTracking)
+            throws JacksonException {
+        return YAML_MAPPER.readValue(baselineTracking, new TypeReference<>() {});
     }
 
     @VisibleForTesting

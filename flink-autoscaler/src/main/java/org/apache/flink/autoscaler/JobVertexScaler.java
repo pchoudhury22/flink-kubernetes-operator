@@ -24,6 +24,7 @@ import org.apache.flink.autoscaler.metrics.EvaluatedScalingMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.topology.ShipStrategy;
 import org.apache.flink.autoscaler.utils.AutoScalerUtils;
+import org.apache.flink.autoscaler.utils.CalendarUtils;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DescribedEnum;
 import org.apache.flink.configuration.description.InlineElement;
@@ -100,15 +101,19 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
     @Getter
     public static class ParallelismChange {
 
-        private static final ParallelismChange NO_CHANGE = new ParallelismChange(-1, false);
+        private static final ParallelismChange NO_CHANGE = new ParallelismChange(-1, false, false);
 
         private final int newParallelism;
 
         private final boolean outsideUtilizationBound;
 
-        private ParallelismChange(int newParallelism, boolean outsideUtilizationBound) {
+        private final boolean isScheduledScaling;
+
+        private ParallelismChange(
+                int newParallelism, boolean outsideUtilizationBound, boolean isScheduledScaling) {
             this.newParallelism = newParallelism;
             this.outsideUtilizationBound = outsideUtilizationBound;
+            this.isScheduledScaling = isScheduledScaling;
         }
 
         public boolean isNoChange() {
@@ -125,12 +130,13 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
             }
             ParallelismChange that = (ParallelismChange) o;
             return newParallelism == that.newParallelism
-                    && outsideUtilizationBound == that.outsideUtilizationBound;
+                    && outsideUtilizationBound == that.outsideUtilizationBound
+                    && isScheduledScaling == that.isScheduledScaling;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(newParallelism, outsideUtilizationBound);
+            return Objects.hash(newParallelism, outsideUtilizationBound, isScheduledScaling);
         }
 
         @Override
@@ -141,12 +147,16 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
                             + newParallelism
                             + ", outsideUtilizationBound="
                             + outsideUtilizationBound
+                            + ", isScheduledScaling="
+                            + isScheduledScaling
                             + "}";
         }
 
-        public static ParallelismChange build(int newParallelism, boolean outsideUtilizationBound) {
+        public static ParallelismChange build(
+                int newParallelism, boolean outsideUtilizationBound, boolean isScheduledScaling) {
             checkArgument(newParallelism > 0, "The parallelism should be greater than 0.");
-            return new ParallelismChange(newParallelism, outsideUtilizationBound);
+            return new ParallelismChange(
+                    newParallelism, outsideUtilizationBound, isScheduledScaling);
         }
 
         public static ParallelismChange noChange() {
@@ -161,7 +171,9 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
             Map<ScalingMetric, EvaluatedScalingMetric> evaluatedMetrics,
             SortedMap<Instant, ScalingSummary> history,
             Duration restartTime,
-            DelayedScaleDown delayedScaleDown) {
+            DelayedScaleDown delayedScaleDown,
+            BaselineTracking baselineTracking,
+            Instant now) {
         var conf = context.getConfiguration();
         var currentParallelism = (int) evaluatedMetrics.get(PARALLELISM).getCurrent();
         double averageTrueProcessingRate = evaluatedMetrics.get(TRUE_PROCESSING_RATE).getAverage();
@@ -182,7 +194,21 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
             return ParallelismChange.noChange();
         }
 
+        var isScheduledScaling = CalendarUtils.inScheduledScalingPeriod(conf, now);
+        if (isScheduledScaling) {
+            var baselineTargetProcessingCapacity =
+                    baselineTracking.computeBaselineProcessingRate(conf, vertex);
+            var scheduledScalingMultiplier = CalendarUtils.getMaxScalingMultiplier(conf, now);
+            if (baselineTargetProcessingCapacity.isPresent()
+                    && scheduledScalingMultiplier.isPresent()) {
+                var scheduledTargetProcessingCapacity =
+                        baselineTargetProcessingCapacity.get() * scheduledScalingMultiplier.get();
+                targetCapacity = Math.max(targetCapacity, scheduledTargetProcessingCapacity);
+            }
+        }
+
         LOG.debug("Target processing capacity for {} is {}", vertex, targetCapacity);
+
         double scaleFactor = targetCapacity / averageTrueProcessingRate;
         if (conf.get(OBSERVED_SCALABILITY_ENABLED)) {
 
@@ -191,6 +217,7 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
 
             scaleFactor = scaleFactor / scalingCoefficient;
         }
+
         double minScaleFactor = 1 - conf.get(MAX_SCALE_DOWN_FACTOR);
         double maxScaleFactor = 1 + conf.get(MAX_SCALE_UP_FACTOR);
         if (scaleFactor < minScaleFactor) {
@@ -246,7 +273,8 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
                 history,
                 currentParallelism,
                 newParallelism,
-                delayedScaleDown);
+                delayedScaleDown,
+                isScheduledScaling);
     }
 
     /**
@@ -334,7 +362,8 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
             SortedMap<Instant, ScalingSummary> history,
             int currentParallelism,
             int newParallelism,
-            DelayedScaleDown delayedScaleDown) {
+            DelayedScaleDown delayedScaleDown,
+            Boolean isScheduledScaling) {
         checkArgument(
                 currentParallelism != newParallelism,
                 "The newParallelism is equal to currentParallelism, no scaling is needed. This is probably a bug.");
@@ -350,7 +379,8 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
 
             // If we don't have past scaling actions for this vertex, don't block scale up.
             if (history.isEmpty()) {
-                return ParallelismChange.build(newParallelism, outsideUtilizationBound);
+                return ParallelismChange.build(
+                        newParallelism, outsideUtilizationBound, isScheduledScaling);
             }
 
             var lastSummary = history.get(history.lastKey());
@@ -362,8 +392,14 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
                 return ParallelismChange.noChange();
             }
 
-            return ParallelismChange.build(newParallelism, outsideUtilizationBound);
+            return ParallelismChange.build(
+                    newParallelism, outsideUtilizationBound, isScheduledScaling);
         } else {
+            if (isScheduledScaling) {
+                // we do not scale down when scheduled scaling is active.
+                delayedScaleDown.clearVertex(vertex);
+                return ParallelismChange.noChange();
+            }
             return applyScaleDownInterval(
                     delayedScaleDown, vertex, conf, newParallelism, outsideUtilizationBound);
         }
@@ -404,7 +440,7 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
         var scaleDownInterval = conf.get(SCALE_DOWN_INTERVAL);
         if (scaleDownInterval.toMillis() <= 0) {
             // The scale down interval is disable, so don't block scaling.
-            return ParallelismChange.build(newParallelism, outsideUtilizationBound);
+            return ParallelismChange.build(newParallelism, outsideUtilizationBound, false);
         }
 
         var now = clock.instant();
@@ -430,7 +466,8 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
                     delayedScaleDownInfo.getMaxRecommendedParallelism(windowStartTime);
             return ParallelismChange.build(
                     maxRecommendedParallelism.getParallelism(),
-                    maxRecommendedParallelism.isOutsideUtilizationBound());
+                    maxRecommendedParallelism.isOutsideUtilizationBound(),
+                    false);
         }
     }
 

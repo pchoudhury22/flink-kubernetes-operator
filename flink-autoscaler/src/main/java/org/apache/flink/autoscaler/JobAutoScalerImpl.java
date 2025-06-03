@@ -27,6 +27,7 @@ import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
 import org.apache.flink.autoscaler.realizer.ScalingRealizer;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
 import org.apache.flink.autoscaler.tuning.ConfigChanges;
+import org.apache.flink.autoscaler.utils.CalendarUtils;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.util.Preconditions;
 
@@ -41,6 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.AUTOSCALER_ENABLED;
 import static org.apache.flink.autoscaler.metrics.AutoscalerFlinkMetrics.initRecommendedParallelism;
 import static org.apache.flink.autoscaler.metrics.AutoscalerFlinkMetrics.resetRecommendedParallelism;
+import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.getBaselineTracking;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.getTrimmedScalingHistory;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.getTrimmedScalingTracking;
 
@@ -208,6 +210,15 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
         LOG.debug("Evaluated metrics: {}", evaluatedMetrics);
         lastEvaluatedMetrics.put(ctx.getJobKey(), evaluatedMetrics);
 
+        var baselineTracking = getBaselineTracking(stateStore, ctx);
+
+        if (CalendarUtils.inBaselineWindowPeriods(ctx.getConfiguration(), now)) {
+            if (!CalendarUtils.inScheduledScalingPeriod(ctx.getConfiguration(), now)) {
+                baselineTracking.recordNewBaselineSample(
+                        ctx.getConfiguration(), evaluatedMetrics, now);
+            }
+        }
+
         initRecommendedParallelism(evaluatedMetrics.getVertexMetrics());
         autoscalerMetrics.registerScalingMetrics(
                 jobTopology.getVerticesInTopologicalOrder(),
@@ -228,7 +239,8 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
                         scalingTracking,
                         now,
                         jobTopology,
-                        delayedScaleDown);
+                        delayedScaleDown,
+                        baselineTracking);
 
         if (delayedScaleDown.isUpdated()) {
             stateStore.storeDelayedScaleDown(ctx, delayedScaleDown);

@@ -18,6 +18,7 @@
 package org.apache.flink.kubernetes.operator.autoscaler.state;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.autoscaler.BaselineTracking;
 import org.apache.flink.autoscaler.DelayedScaleDown;
 import org.apache.flink.autoscaler.ScalingSummary;
 import org.apache.flink.autoscaler.ScalingTracking;
@@ -68,6 +69,7 @@ public class KubernetesAutoScalerStateStore
 
     @VisibleForTesting protected static final String SCALING_HISTORY_KEY = "scalingHistory";
     @VisibleForTesting protected static final String SCALING_TRACKING_KEY = "scalingTracking";
+    @VisibleForTesting protected static final String BASELINE_TRACKING_KEY = "baselineTracking";
     @VisibleForTesting protected static final String COLLECTED_METRICS_KEY = "collectedMetrics";
 
     @VisibleForTesting
@@ -107,6 +109,13 @@ public class KubernetesAutoScalerStateStore
                 jobContext, SCALING_TRACKING_KEY, serializeScalingTracking(scalingTrack));
     }
 
+    @Override
+    public void storeBaselineTracking(
+            KubernetesJobAutoScalerContext jobContext, BaselineTracking baselineTrack) {
+        configMapStore.putSerializedState(
+                jobContext, BASELINE_TRACKING_KEY, serializeBaselineTracking(baselineTrack));
+    }
+
     @Nonnull
     @Override
     public Map<JobVertexID, SortedMap<Instant, ScalingSummary>> getScalingHistory(
@@ -138,10 +147,28 @@ public class KubernetesAutoScalerStateStore
             return deserializeScalingTracking(serializedRescalingHistory.get());
         } catch (JacksonException e) {
             LOG.error(
-                    "Could not deseri alize rescaling history, possibly the format changed. Discarding...",
+                    "Could not deserialize rescaling history, possibly the format changed. Discarding...",
                     e);
             configMapStore.removeSerializedState(jobContext, SCALING_TRACKING_KEY);
             return new ScalingTracking();
+        }
+    }
+
+    @Override
+    public BaselineTracking getBaselineTracking(KubernetesJobAutoScalerContext jobContext) {
+        Optional<String> serializedBaselineRecords =
+                configMapStore.getSerializedState(jobContext, BASELINE_TRACKING_KEY);
+        if (serializedBaselineRecords.isEmpty()) {
+            return new BaselineTracking();
+        }
+        try {
+            return deserializeBaselineTracking(serializedBaselineRecords.get());
+        } catch (JacksonException e) {
+            LOG.error(
+                    "Could not deserialize baseline tracking records, possibly the format changed. Discarding...",
+                    e);
+            configMapStore.removeSerializedState(jobContext, BASELINE_TRACKING_KEY);
+            return new BaselineTracking();
         }
     }
 
@@ -287,6 +314,16 @@ public class KubernetesAutoScalerStateStore
         return YAML_MAPPER.readValue(decompress(scalingTracking), new TypeReference<>() {});
     }
 
+    @SneakyThrows
+    protected static String serializeBaselineTracking(BaselineTracking baselineTracking) {
+        return compress(YAML_MAPPER.writeValueAsString(baselineTracking));
+    }
+
+    private static BaselineTracking deserializeBaselineTracking(String baselineTracking)
+            throws JacksonException {
+        return YAML_MAPPER.readValue(decompress(baselineTracking), new TypeReference<>() {});
+    }
+
     @VisibleForTesting
     @SneakyThrows
     protected static String serializeEvaluatedMetrics(
@@ -357,8 +394,15 @@ public class KubernetesAutoScalerStateStore
                         .map(String::length)
                         .orElse(0);
 
+        int baselineTrackingSize =
+                configMapStore
+                        .getSerializedState(context, BASELINE_TRACKING_KEY)
+                        .map(String::length)
+                        .orElse(0);
+
         SortedMap<Instant, CollectedMetrics> metricHistory = getCollectedMetrics(context);
-        while (scalingHistorySize + metricHistorySize + scalingTrackingSize > MAX_CM_BYTES) {
+        while (scalingHistorySize + metricHistorySize + scalingTrackingSize + baselineTrackingSize
+                > MAX_CM_BYTES) {
             if (metricHistory.isEmpty()) {
                 return;
             }

@@ -19,6 +19,7 @@
 package org.apache.flink.autoscaler.utils;
 
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
+import org.apache.flink.autoscaler.config.ScheduledScalingOptions;
 import org.apache.flink.configuration.Configuration;
 
 import org.quartz.impl.calendar.CronCalendar;
@@ -64,15 +65,14 @@ public class CalendarUtils {
         }
     }
 
-    static Optional<String> validateExcludedExpression(String expression) {
+    static Optional<String> validatePeriodExpression(String expression, String config) {
         String[] subExpressions = expression.split("&&");
         Optional<DailyCalendar> dailyCalendar = Optional.empty();
         Optional<CronCalendar> cronCalendar = Optional.empty();
         if (subExpressions.length > 2) {
             return Optional.of(
                     String.format(
-                            "Invalid value %s in the autoscaler config %s",
-                            expression, AutoScalerOptions.EXCLUDED_PERIODS.key()));
+                            "Invalid value %s in the autoscaler config %s", expression, config));
         }
 
         for (String subExpression : subExpressions) {
@@ -86,7 +86,7 @@ public class CalendarUtils {
                 return Optional.of(
                         String.format(
                                 "Invalid value %s in the autoscaler config %s, the value is neither a valid daily expression nor a valid cron expression",
-                                expression, AutoScalerOptions.EXCLUDED_PERIODS.key()));
+                                expression, config));
             }
         }
 
@@ -94,12 +94,12 @@ public class CalendarUtils {
             return Optional.of(
                     String.format(
                             "Invalid value %s in the autoscaler config %s, the value can not be configured as dailyExpression && dailyExpression or cronExpression && cronExpression",
-                            expression, AutoScalerOptions.EXCLUDED_PERIODS.key()));
+                            expression, config));
         }
         return Optional.empty();
     }
 
-    static boolean inExcludedPeriod(String expression, Instant instant) {
+    static boolean inPeriod(String expression, Instant instant) {
         String[] subExpressions = expression.split("&&");
         boolean result = true;
         for (String subExpression : subExpressions) {
@@ -118,17 +118,95 @@ public class CalendarUtils {
     public static boolean inExcludedPeriods(Configuration conf, Instant instant) {
         List<String> excludedExpressions = conf.get(AutoScalerOptions.EXCLUDED_PERIODS);
         for (String expression : excludedExpressions) {
-            if (inExcludedPeriod(expression, instant)) {
+            if (inPeriod(expression, instant)) {
                 return true;
             }
         }
         return false;
     }
 
+    public static boolean inBaselineWindowPeriods(Configuration conf, Instant instant) {
+        List<String> baselineWindowPeriodExpressions = conf.get(AutoScalerOptions.BASELINE_WINDOW);
+        for (String expression : baselineWindowPeriodExpressions) {
+            if (inPeriod(expression, instant)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean inScheduledScalingPeriod(Configuration conf, Instant instant) {
+        var schedules = conf.get(AutoScalerOptions.SCHEDULED_SCALING_SCHEDULES);
+        if (schedules == null || schedules.isEmpty()) {
+            return false;
+        }
+        for (String schedule : schedules) {
+            var scheduleConfig = ScheduledScalingOptions.forScheduledScaling(conf, schedule);
+            var scheduleExpressions =
+                    scheduleConfig.get(ScheduledScalingOptions.SCHEDULED_SCALING_PERIOD);
+            var leadTime = scheduleConfig.get(ScheduledScalingOptions.SCHEDULED_SCALING_LEAD_TIME);
+
+            Instant instantWithLead = instant.plus(leadTime);
+
+            for (String expression : scheduleExpressions) {
+                if (inPeriod(expression, instant) || inPeriod(expression, instantWithLead)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static Optional<Double> getMaxScalingMultiplier(Configuration conf, Instant instant) {
+        var schedules = conf.get(AutoScalerOptions.SCHEDULED_SCALING_SCHEDULES);
+        if (schedules == null || schedules.isEmpty()) {
+            return Optional.empty();
+        }
+
+        double maxMultiplier = Double.MIN_VALUE;
+        boolean foundMatch = false;
+
+        for (String schedule : schedules) {
+            var scheduleConfig = ScheduledScalingOptions.forScheduledScaling(conf, schedule);
+            var scheduleExpressions =
+                    scheduleConfig.get(ScheduledScalingOptions.SCHEDULED_SCALING_PERIOD);
+            var leadTime = scheduleConfig.get(ScheduledScalingOptions.SCHEDULED_SCALING_LEAD_TIME);
+            var multiplier =
+                    scheduleConfig.get(ScheduledScalingOptions.SCHEDULED_SCALING_MULTIPLIER);
+
+            Instant instantWithLead = instant.plus(leadTime);
+
+            for (String expression : scheduleExpressions) {
+                if (inPeriod(expression, instant) || inPeriod(expression, instantWithLead)) {
+                    if (multiplier != null) {
+                        maxMultiplier = Math.max(maxMultiplier, multiplier);
+                        foundMatch = true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        return foundMatch ? Optional.of(maxMultiplier) : Optional.empty();
+    }
+
     public static Optional<String> validateExcludedPeriods(Configuration conf) {
         List<String> excludedExpressions = conf.get(AutoScalerOptions.EXCLUDED_PERIODS);
         for (String expression : excludedExpressions) {
-            Optional<String> errorMsg = validateExcludedExpression(expression);
+            Optional<String> errorMsg =
+                    validatePeriodExpression(expression, AutoScalerOptions.EXCLUDED_PERIODS.key());
+            if (errorMsg.isPresent()) {
+                return errorMsg;
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static Optional<String> validateBaselineWindowPeriods(Configuration conf) {
+        List<String> baselineWindowExpressions = conf.get(AutoScalerOptions.BASELINE_WINDOW);
+        for (String expression : baselineWindowExpressions) {
+            Optional<String> errorMsg =
+                    validatePeriodExpression(expression, AutoScalerOptions.BASELINE_WINDOW.key());
             if (errorMsg.isPresent()) {
                 return errorMsg;
             }

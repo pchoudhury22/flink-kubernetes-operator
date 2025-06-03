@@ -17,6 +17,7 @@
 
 package org.apache.flink.autoscaler.metrics;
 
+import org.apache.flink.autoscaler.BaselineTracking;
 import org.apache.flink.autoscaler.JobAutoScalerContext;
 import org.apache.flink.autoscaler.ScalingSummary;
 import org.apache.flink.autoscaler.ScalingTracking;
@@ -128,5 +129,13 @@ public class ScalingHistoryUtils {
                 conf.get(AutoScalerOptions.VERTEX_SCALING_HISTORY_AGE),
                 conf.get(AutoScalerOptions.VERTEX_SCALING_HISTORY_COUNT));
         return scalingTracking;
+    }
+
+    @Nonnull
+    public static <KEY, Context extends JobAutoScalerContext<KEY>>
+            BaselineTracking getBaselineTracking(
+                    AutoScalerStateStore<KEY, Context> autoScalerStateStore, Context context)
+                    throws Exception {
+        return autoScalerStateStore.getBaselineTracking(context);
     }
 }
